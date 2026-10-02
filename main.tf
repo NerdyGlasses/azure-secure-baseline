@@ -47,6 +47,9 @@ resource "azurerm_subnet_network_security_group_association" "app" {
 }
 
 # ---------- Storage ----------
+#checkov:skip=CKV_AZURE_33:Queue logging IS enabled, via the dedicated azurerm_storage_account_queue_properties
+# resource below (required since the inline queue_properties block is deprecated in AzureRM v4 and
+# removed in v5). Checkov 3.3.22's rule for this check does not yet recognize the split-resource pattern.
 resource "azurerm_storage_account" "data" {
   name                     = "${var.prefix}data001"
   resource_group_name      = azurerm_resource_group.rg.name
