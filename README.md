@@ -37,8 +37,9 @@ Azure Portal reflects these settings.
 
 | | Before | After |
 |---|---|---|
-| Checkov passed checks | 12 | 27 |
-| Checkov failed checks | 19 | 4 |
+| Checkov passed checks | 12 | 36 |
+| Checkov failed checks | 19 | 0 |
+| Checkov skipped checks | 0 | 2 (documented false positives, see below) |
 
 See the git history for the actual progression — each commit fixes a
 specific set of findings and explains the reasoning:
@@ -47,6 +48,7 @@ specific set of findings and explains the reasoning:
 a3eb364  Insecure baseline (intentional)
 8ed2b4f  Harden NSG, storage account, and Key Vault per checkov findings
 edfa073  Split queue logging into its own resource; document CKV_AZURE_33 false positive
+...      Add private endpoints, CMK encryption, and centralized logging
 ```
 
 ### Example fixes
@@ -60,38 +62,69 @@ edfa073  Split queue logging into its own resource; document CKV_AZURE_33 false 
   and a 24-hour SAS expiry policy.
 - **Key Vault**: public network access enabled, no purge protection, no
   firewall rules. Fixed with purge protection, a deny-by-default firewall
-  (`network_acls`), and public access disabled.
+  (`network_acls`), RBAC authorization, and public access disabled.
+- **Private connectivity**: both the storage account and Key Vault had public
+  network access disabled, but nothing replaced it. Added a dedicated
+  private endpoint subnet, private DNS zones, and private endpoints for
+  both resources, so they're reachable only from inside the VNet.
+- **Encryption at rest**: storage used Microsoft-managed keys by default.
+  Switched to a customer-managed, HSM-backed key with an expiration date,
+  using a system-assigned identity on the storage account and scoped RBAC
+  role assignments (one for Terraform to create the key, one for the
+  storage account to use it).
+- **Logging**: added a Log Analytics workspace and a diagnostic setting
+  sending blob read/write/delete logs and transaction metrics to it — the
+  same workspace type Sentinel is built on top of.
 
-### A documented false positive
+## Lessons learned
 
-`CKV_AZURE_33` (queue logging) initially kept failing even after logging
-was enabled, because the AzureRM provider is deprecating the inline
-`queue_properties` block inside `azurerm_storage_account` in favor of a
-separate `azurerm_storage_account_queue_properties` resource. Checkov
-3.3.22's rule for this check doesn't yet recognize the new resource split.
-The control is genuinely in place — this is flagged and explained with a
-`#checkov:skip` comment rather than silently ignored.
+**Two documented false positives, not silently ignored findings.**
+Two checks are suppressed with `#checkov:skip` comments rather than fixed,
+because the underlying control is genuinely in place and the check itself
+is outdated:
 
-## Remaining findings (next stage)
+- `CKV_AZURE_33` (queue logging): the AzureRM provider is deprecating the
+  inline `queue_properties` block inside `azurerm_storage_account` in
+  favor of a separate `azurerm_storage_account_queue_properties` resource.
+  Logging is enabled via that separate resource, but Checkov 3.3.22's rule
+  for this check doesn't yet recognize the split-resource pattern.
+- `CKV2_AZURE_21` (blob read logging): this check predates diagnostic
+  settings and originally targeted a now-deprecated "classic" Storage
+  Analytics logging property the provider no longer exposes. Blob read
+  logging is implemented here via a diagnostic setting sending logs to
+  Log Analytics instead - the modern equivalent the check doesn't look for.
 
-Four findings remain, all requiring additional infrastructure rather than
-single-argument fixes:
+Telling a real gap apart from a scanner limitation, and documenting the
+difference instead of just suppressing the noise, is itself part of the
+job this project was meant to practice.
 
-- `CKV2_AZURE_32` / `CKV2_AZURE_33` — private endpoints for Key Vault and
-  the storage account (needs a dedicated subnet + private DNS zones)
-- `CKV2_AZURE_1` — customer-managed key encryption for the storage account
-  (needs a Key Vault key + managed identity)
-- `CKV2_AZURE_21` — blob read-request logging (needs a Log Analytics
-  workspace + diagnostic settings — a natural bridge to a Sentinel
-  monitoring setup)
+**Scanning tools lag behind provider schema changes.** Several fixes
+along the way existed only because the AzureRM provider renamed or split
+arguments between versions (`enable_https_traffic_only` →
+`https_traffic_only_enabled`, inline `queue_properties` → a standalone
+resource, `enable_rbac_authorization` → `rbac_authorization_enabled`).
+None of these were security issues on their own, but they're the kind of
+small frictions that show up constantly in real infrastructure work.
+
+**A circular dependency, solved the standard way.** Customer-managed key
+encryption needs the storage account to have an identity before that
+identity can be granted permission to use a key - but the encryption
+setting itself depends on that permission already existing. This is why
+`azurerm_storage_account_customer_managed_key` exists as its own resource
+rather than a block inside `azurerm_storage_account`: it lets Terraform's
+dependency graph resolve the order correctly (identity → role assignment →
+CMK setting) instead of trying to set everything at once.
 
 ## Structure
 
 ```
 .
-├── main.tf          # Resources: networking, storage, Key Vault
-├── variables.tf     # Input variables
-├── versions.tf      # Provider requirements
+├── main.tf               # Core resources: networking, storage, Key Vault
+├── private-endpoints.tf  # Private subnet, DNS zones, and endpoints for storage + Key Vault
+├── encryption.tf         # Customer-managed, HSM-backed key encryption for storage
+├── monitoring.tf         # Log Analytics workspace + blob diagnostic logging
+├── variables.tf          # Input variables
+├── versions.tf           # Provider requirements
 └── README.md
 ```
 
