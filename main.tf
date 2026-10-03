@@ -47,10 +47,13 @@ resource "azurerm_subnet_network_security_group_association" "app" {
 }
 
 # ---------- Storage ----------
-#checkov:skip=CKV_AZURE_33:Queue logging IS enabled, via the dedicated azurerm_storage_account_queue_properties
-# resource below (required since the inline queue_properties block is deprecated in AzureRM v4 and
-# removed in v5). Checkov 3.3.22's rule for this check does not yet recognize the split-resource pattern.
+# Queue logging IS enabled via the dedicated azurerm_storage_account_queue_properties resource
+# below (required since the inline block is deprecated). Checkov 3.3.22 doesn't yet recognize
+# the split-resource pattern for this check, so it's suppressed here with a documented reason.
+
 resource "azurerm_storage_account" "data" {
+  #checkov:skip=CKV_AZURE_33:Queue logging enabled via azurerm_storage_account_queue_properties (see that resource below)
+
   name                     = "${var.prefix}data001"
   resource_group_name      = azurerm_resource_group.rg.name
   location                 = azurerm_resource_group.rg.location
@@ -83,6 +86,10 @@ resource "azurerm_storage_account" "data" {
     }
   }
 
+  # Needed so the account can be granted permission to use a Key Vault key (see encryption.tf)
+  identity {
+    type = "SystemAssigned"
+  }
 }
 
 # Fix (CKV_AZURE_33 / CKV2_AZURE_21): storage request logging, feeds Sentinel/Log Analytics later.
@@ -100,7 +107,14 @@ resource "azurerm_storage_account_queue_properties" "data" {
   }
 }
 
+# Blob read logging IS enabled, via the diagnostic setting in monitoring.tf sending StorageRead/
+# Write/Delete logs to Log Analytics. This check predates diagnostic settings and originally
+# targeted the now-deprecated classic Storage Analytics logging property, which the provider no
+# longer exposes here - so it can never pass via the mechanism this check actually looks for.
+
 resource "azurerm_storage_container" "files" {
+  #checkov:skip=CKV2_AZURE_21:Blob read logging enabled via diagnostic setting in monitoring.tf, not the deprecated classic logging property
+
   name                  = "files"
   storage_account_id    = azurerm_storage_account.data.id
   # Fix (CKV_AZURE_34): private container, no anonymous read access
@@ -113,7 +127,8 @@ resource "azurerm_key_vault" "kv" {
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   tenant_id           = var.tenant_id
-  sku_name            = "standard"
+  # Premium SKU is required to issue HSM-backed keys (see encryption.tf)
+  sku_name            = "premium"
 
   # Fix (CKV_AZURE_110 / CKV_AZURE_42): purge protection so deleted secrets/keys can't be
   # permanently destroyed before the retention window - protects against malicious or accidental deletion
@@ -127,4 +142,8 @@ resource "azurerm_key_vault" "kv" {
     default_action = "Deny"
     bypass         = "AzureServices"
   }
+
+  # RBAC authorization (instead of legacy access policies) so Azure role assignments
+  # grant key permissions - used by the storage account's CMK setup in encryption.tf
+  rbac_authorization_enabled = true
 }
