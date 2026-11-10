@@ -1,7 +1,5 @@
 # Azure Secure Baseline (Terraform)
 
-![Terraform CI](https://github.com/NerdyGlasses/azure-secure-baseline/actions/workflows/terraform-ci.yml/badge.svg)
-
 A small Terraform project demonstrating how to find and fix common Azure security misconfigurations using static analysis, before any infrastructure is deployed.
 
 ## What this is
