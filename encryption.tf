@@ -47,8 +47,8 @@ resource "azurerm_role_assignment" "storage_identity_kv" {
 # it can be granted key access, but the CMK setting itself depends on that access existing).
 resource "azurerm_storage_account_customer_managed_key" "data" {
   storage_account_id = azurerm_storage_account.data.id
-  key_vault_id        = azurerm_key_vault.kv.id
-  key_name            = azurerm_key_vault_key.storage_cmk.name
+  key_vault_id       = azurerm_key_vault.kv.id
+  key_name           = azurerm_key_vault_key.storage_cmk.name
 
   depends_on = [azurerm_role_assignment.storage_identity_kv]
 }

@@ -54,10 +54,10 @@ resource "azurerm_subnet_network_security_group_association" "app" {
 resource "azurerm_storage_account" "data" {
   #checkov:skip=CKV_AZURE_33:Queue logging enabled via azurerm_storage_account_queue_properties (see that resource below)
 
-  name                     = "${var.prefix}data001"
-  resource_group_name      = azurerm_resource_group.rg.name
-  location                 = azurerm_resource_group.rg.location
-  account_tier             = "Standard"
+  name                = "${var.prefix}data001"
+  resource_group_name = azurerm_resource_group.rg.name
+  location            = azurerm_resource_group.rg.location
+  account_tier        = "Standard"
   # Fix (CKV_AZURE_206): geo-redundant replication instead of single-region LRS
   account_replication_type = "GRS"
 
@@ -115,8 +115,8 @@ resource "azurerm_storage_account_queue_properties" "data" {
 resource "azurerm_storage_container" "files" {
   #checkov:skip=CKV2_AZURE_21:Blob read logging enabled via diagnostic setting in monitoring.tf, not the deprecated classic logging property
 
-  name                  = "files"
-  storage_account_id    = azurerm_storage_account.data.id
+  name               = "files"
+  storage_account_id = azurerm_storage_account.data.id
   # Fix (CKV_AZURE_34): private container, no anonymous read access
   container_access_type = "private"
 }
@@ -128,7 +128,7 @@ resource "azurerm_key_vault" "kv" {
   resource_group_name = azurerm_resource_group.rg.name
   tenant_id           = var.tenant_id
   # Premium SKU is required to issue HSM-backed keys (see encryption.tf)
-  sku_name            = "premium"
+  sku_name = "premium"
 
   # Fix (CKV_AZURE_110 / CKV_AZURE_42): purge protection so deleted secrets/keys can't be
   # permanently destroyed before the retention window - protects against malicious or accidental deletion
